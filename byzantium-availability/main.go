@@ -43,6 +43,7 @@ func WaitProcessDone(pid int) error {
 		if err != nil {
 			return err
 		}
+		// check if process done
 		err = process.Signal(syscall.Signal(0))
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
