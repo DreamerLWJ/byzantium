@@ -1,4 +1,4 @@
-package main
+package process
 
 import (
 	"fmt"
@@ -11,49 +11,30 @@ import (
 	"github.com/pkg/errors"
 )
 
-func main() {
-	//pids, err := GetPortPID(9999)
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	pids := []int{79422}
-
-	for _, pid := range pids {
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			panic(err)
-		}
-		err = process.Signal(syscall.Signal(0))
-		if err != nil {
-			fmt.Println(err)
-		}
-		err = process.Signal(syscall.SIGTERM)
-		if err != nil {
-			panic(err)
-		}
-		err = WaitProcessDone(pid)
-		fmt.Printf("process.Wait, err:%s\n", err)
+// SignProcess send signal to process by pid
+func SignProcess(pid int, signal syscall.Signal) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
 	}
+	err = process.Signal(signal)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func WaitProcessDone(pid int) error {
-	for {
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			return err
-		}
-		// check if process done
-		err = process.Signal(syscall.Signal(0))
-		if err != nil {
-			if errors.Is(err, os.ErrProcessDone) {
-				fmt.Println("process done")
-			} else {
-				fmt.Printf("WaitProcessDone|err:%s\n", err)
-			}
-			return nil
+// IsProcessAlive check if pid is alive
+func IsProcessAlive(pid int) (alive bool, err error) {
+	err = SignProcess(pid, syscall.Signal(0))
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return false, nil
+		} else {
+			return false, err
 		}
 	}
+	return true, nil
 }
 
 // GetPortPID 通过 Linux 命令获取占用指定端口的进程 PID
@@ -94,7 +75,7 @@ func KillPid(pid string) error {
 	return nil
 }
 
-// WaitPid 等待进程结束
+// WaitPid 等待指定子进程结束
 func WaitPid(pid string) error {
 	waitCmd := exec.Command("wait", pid)
 	waitCmd.Stdout = os.Stdout
