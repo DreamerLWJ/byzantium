@@ -1,4 +1,4 @@
-module byzantium-availability
+module github.com/DreamerLWJ/byzantium
 
 go 1.19
 
