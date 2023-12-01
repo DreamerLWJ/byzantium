@@ -1,12 +1,12 @@
 package process_checker
 
 import (
-	"byzantium-availability/sdk/process"
-	"byzantium-availability/sdk/utils"
 	"context"
 	"sync"
 	"time"
 
+	"github.com/DreamerLWJ/byzantium/sdk/process"
+	"github.com/DreamerLWJ/byzantium/sdk/utils"
 	"github.com/pkg/errors"
 )
 
