@@ -1,4 +1,4 @@
-package process_checker
+package server_checker
 
 type ServerChecker struct {
 }

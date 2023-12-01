@@ -10,6 +10,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	_defaultCheckInterval = time.Second * 5
+)
+
 type CheckerType int8
 
 const (
@@ -19,21 +23,18 @@ const (
 
 // ProcessChecker check if process exist
 type ProcessChecker struct {
-	pid           int           // specific pid to check
+	pid           int           // specific pid to check, or last listen port pid
 	port          int           // check port pid alive if pid not specified
 	checkerType   CheckerType   // checker type
 	checkInterval time.Duration // check process interval
 
-	downEventFuncs  []ProcessDownEventFunc
-	aliveEventFuncs []ProcessAliveEventFunc
+	downEventFuncs      []ProcessDownEventFunc
+	aliveEventFuncs     []ProcessAliveEventFunc
+	portPidChangedFuncs []PortPidChangedEventFunc
 
 	mu           sync.RWMutex
 	isRunning    bool
 	isTerminated bool
-}
-
-func (p *ProcessChecker) initDefaultValue() {
-	p.checkInterval = time.Second * 5
 }
 
 func NewPortProcessChecker(port int, opts ...Option) (*ProcessChecker, error) {
@@ -41,8 +42,11 @@ func NewPortProcessChecker(port int, opts ...Option) (*ProcessChecker, error) {
 		return &ProcessChecker{}, errors.Errorf("port <= 0")
 	}
 
-	p := &ProcessChecker{port: port, checkerType: PortChecker}
-	p.initDefaultValue()
+	p := &ProcessChecker{
+		port:          port,
+		checkerType:   PortChecker,
+		checkInterval: _defaultCheckInterval,
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -53,12 +57,63 @@ func NewPidProcessChecker(pid int, opts ...Option) (*ProcessChecker, error) {
 	if pid <= 0 {
 		return &ProcessChecker{}, errors.Errorf("pid <= 0")
 	}
-	p := &ProcessChecker{pid: pid, checkerType: PidChecker}
-	p.initDefaultValue()
+	p := &ProcessChecker{
+		pid:           pid,
+		checkerType:   PidChecker,
+		checkInterval: _defaultCheckInterval,
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
 	return p, nil
+}
+
+// Run run checker in blocking way
+func (p *ProcessChecker) Run() error {
+	err := p.preCheck()
+	if err != nil {
+		return err
+	}
+	// listen kill event, TODO
+
+	p.mu.Lock()
+	p.isRunning = true
+	p.mu.Unlock()
+
+	for {
+		p.mu.RLock()
+		if p.isTerminated {
+			p.mu.RUnlock()
+			return ErrTerminated
+		}
+		p.mu.RUnlock()
+
+		p.doCheck()
+		time.Sleep(p.checkInterval)
+	}
+}
+
+// Start run checker in non-blocking way
+func (p *ProcessChecker) Start() error {
+	err := p.preCheck()
+	if err != nil {
+		return err
+	}
+	go func() {
+		_ = p.Run()
+	}()
+	return nil
+}
+
+// Terminate terminate checker
+func (p *ProcessChecker) Terminate() {
+	p.mu.Lock()
+	defer func() {
+		p.mu.Unlock()
+	}()
+
+	p.isTerminated = true
+	p.isRunning = false
 }
 
 func (p *ProcessChecker) preCheck() error {
@@ -74,31 +129,17 @@ func (p *ProcessChecker) preCheck() error {
 	return nil
 }
 
-func (p *ProcessChecker) Run() error {
-	err := p.preCheck()
-	if err != nil {
-		return err
-	}
-
-	time.Sleep(p.checkInterval)
-	p.doCheck()
-	return nil
-}
-
-func (p *ProcessChecker) Start() error {
-	err := p.preCheck()
-	if err != nil {
-		return err
-	}
-	go func() {
-		_ = p.Run()
-	}()
-	return nil
-}
-
 func (p *ProcessChecker) doCheck() {
-	p.checkPidAlive()
-	p.checkPortListening()
+	switch p.checkerType {
+	case PortChecker:
+		if p.pid != 0 {
+			p.checkPidAlive()
+		} else {
+			p.checkPortListening()
+		}
+	case PidChecker:
+		p.checkPidAlive()
+	}
 }
 
 func (p *ProcessChecker) checkPidAlive() {
@@ -143,6 +184,11 @@ func (p *ProcessChecker) checkPortListening() {
 			Port:      p.port,
 		})
 	} else { // port isn't bound
+		if len(pids) != 1 {
+			// TODO
+		}
+		p.pid = pids[0]
+
 		p.dispatchEvents(ctx, ProcessCheckEvent{
 			EventType: ProcessAlive,
 			Pid:       p.pid,
@@ -164,13 +210,13 @@ func (p *ProcessChecker) dispatchEvents(ctx context.Context, event ProcessCheckE
 	case PortDown, ProcessDown:
 		for _, f := range p.downEventFuncs {
 			ap.TaskFn(func() {
-				f(event)
+				f(ctx, event)
 			})
 		}
 	case PortAlive, ProcessAlive:
 		for _, f := range p.aliveEventFuncs {
 			ap.TaskFn(func() {
-				f(event)
+				f(ctx, event)
 			})
 		}
 	}
