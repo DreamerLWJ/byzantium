@@ -39,7 +39,7 @@ func IsProcessAlive(pid int) (alive bool, err error) {
 
 // GetPortPID 通过 Linux 命令获取占用指定端口的进程 PID
 func GetPortPID(port int, status TcpConnStatus) (pids []int, err error) {
-	cmd := exec.Command("lsof", "-t", fmt.Sprintf("-i:%d", port), "-sTCP", string(status))
+	cmd := exec.Command("lsof", "-t", fmt.Sprintf("-i:%d", port), fmt.Sprintf("-sTCP:%s", status))
 	output, err := cmd.Output()
 	if err != nil {
 		return pids, err

@@ -12,7 +12,7 @@ const (
 
 type ProcessCheckEvent struct {
 	EventType EventType
-	OldPid    int
+	LastPid   int
 	Pid       int
 	Port      int
 }

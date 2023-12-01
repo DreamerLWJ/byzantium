@@ -132,11 +132,7 @@ func (p *ProcessChecker) preCheck() error {
 func (p *ProcessChecker) doCheck() {
 	switch p.checkerType {
 	case PortChecker:
-		if p.pid != 0 {
-			p.checkPidAlive()
-		} else {
-			p.checkPortListening()
-		}
+		p.checkPortListening()
 	case PidChecker:
 		p.checkPidAlive()
 	}
@@ -178,22 +174,43 @@ func (p *ProcessChecker) checkPortListening() {
 		// TODO
 	}
 	if len(pids) <= 0 { // process binding
+		oldPid := p.pid
+		if p.pid != 0 {
+			p.dispatchEvents(ctx, ProcessCheckEvent{
+				EventType: PortPidChanged,
+				LastPid:   oldPid,
+				Pid:       0,
+				Port:      p.port,
+			})
+		}
+
 		p.dispatchEvents(ctx, ProcessCheckEvent{
 			EventType: PortDown,
 			Pid:       p.pid,
 			Port:      p.port,
 		})
+		p.pid = 0
 	} else { // port isn't bound
 		if len(pids) != 1 {
 			// TODO
 		}
-		p.pid = pids[0]
+		oldPid := p.pid
+		pid := pids[0]
+		if pid != oldPid {
+			p.dispatchEvents(ctx, ProcessCheckEvent{
+				EventType: PortPidChanged,
+				LastPid:   oldPid,
+				Pid:       pid,
+				Port:      p.port,
+			})
+		}
 
 		p.dispatchEvents(ctx, ProcessCheckEvent{
 			EventType: ProcessAlive,
 			Pid:       p.pid,
 			Port:      p.port,
 		})
+		p.pid = pid
 	}
 }
 
@@ -215,6 +232,12 @@ func (p *ProcessChecker) dispatchEvents(ctx context.Context, event ProcessCheckE
 		}
 	case PortAlive, ProcessAlive:
 		for _, f := range p.aliveEventFuncs {
+			ap.TaskFn(func() {
+				f(ctx, event)
+			})
+		}
+	case PortPidChanged:
+		for _, f := range p.portPidChangedFuncs {
 			ap.TaskFn(func() {
 				f(ctx, event)
 			})
